@@ -2,6 +2,7 @@ import psutil
 import os
 import json
 import re
+import subprocess
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
@@ -11,45 +12,59 @@ class VibeCodeMonitor:
     def __init__(self):
         self.tools_config = {
             "codex": {
-                "process_names": ["codex", "codex-cli"],
+                "process_names": ["codex", "codex-cli", "codex.exe"],
                 "log_paths": [
                     os.path.expanduser("~/.codex/log"),
-                    os.path.expanduser("~/.config/codex/log")
+                    os.path.expanduser("~/.config/codex/log"),
+                    os.path.expanduser("~/Library/Logs/codex")
                 ],
                 "waiting_patterns": [
                     r"waiting for input",
                     r"approve.*\?",
                     r"y/n",
-                    r"continue.*\?"
+                    r"continue.*\?",
+                    r"Do you want to",
+                    r"Allow.*\?",
+                    r"Permission.*\?"
                 ]
             },
             "claude": {
-                "process_names": ["claude", "claude-cli"],
+                "process_names": ["claude", "claude-cli", "claude.exe", "anthropic"],
                 "log_paths": [
                     os.path.expanduser("~/.claude/log"),
-                    os.path.expanduser("~/.config/claude/log")
+                    os.path.expanduser("~/.config/claude/log"),
+                    os.path.expanduser("~/Library/Logs/Claude")
                 ],
                 "waiting_patterns": [
                     r"waiting for approval",
                     r"apply.*changes.*\?",
                     r"y/n",
-                    r"continue.*\?"
+                    r"continue.*\?",
+                    r"Do you want to",
+                    r"Allow.*\?",
+                    r"Permission.*\?",
+                    r"needs your approval"
                 ]
             },
             "opencode": {
-                "process_names": ["opencode"],
+                "process_names": ["opencode", "opencode.exe", "opencode-cli"],
                 "log_paths": [
                     os.path.expanduser("~/.opencode/log"),
-                    os.path.expanduser("~/.config/opencode/log")
+                    os.path.expanduser("~/.config/opencode/log"),
+                    os.path.expanduser("~/Library/Logs/opencode")
                 ],
                 "waiting_patterns": [
                     r"waiting for input",
                     r"approve.*\?",
                     r"y/n",
-                    r"apply.*\?"
+                    r"apply.*\?",
+                    r"Do you want to",
+                    r"Allow.*\?",
+                    r"Permission.*\?"
                 ]
             }
         }
+        self._last_status = {}
     
     def get_all_tools_status(self) -> Dict[str, Any]:
         """Get status of all monitored tools"""
@@ -65,6 +80,7 @@ class VibeCodeMonitor:
             is_running = self._is_process_running(config["process_names"])
             
             if not is_running:
+                self._last_status[tool_name] = "inactive"
                 return {
                     "status": "inactive",
                     "running": False,
@@ -77,6 +93,7 @@ class VibeCodeMonitor:
             waiting_state = self._check_waiting_state(log_content, config["waiting_patterns"])
             
             if waiting_state:
+                self._last_status[tool_name] = "waiting_input"
                 return {
                     "status": "waiting_input",
                     "running": True,
@@ -84,13 +101,18 @@ class VibeCodeMonitor:
                     "needs_attention": True
                 }
             
+            # Check if we just transitioned from waiting to running
+            last = self._last_status.get(tool_name, "inactive")
+            self._last_status[tool_name] = "running"
+            
             return {
                 "status": "running",
                 "running": True,
-                "message": "Processing...",
+                "message": "Processing..." if last != "waiting_input" else "Continuing...",
                 "needs_attention": False
             }
         except Exception as e:
+            self._last_status[tool_name] = "error"
             return {
                 "status": "error",
                 "running": False,
@@ -100,16 +122,43 @@ class VibeCodeMonitor:
     
     def _is_process_running(self, process_names: List[str]) -> bool:
         """Check if any of the process names are running"""
-        for proc in psutil.process_iter(['name', 'cmdline']):
-            try:
-                proc_name = proc.info['name'].lower() if proc.info['name'] else ""
-                cmdline = " ".join(proc.info['cmdline']).lower() if proc.info['cmdline'] else ""
-                
+        try:
+            for proc in psutil.process_iter(['name', 'cmdline', 'pid']):
+                try:
+                    proc_name = proc.info['name'].lower() if proc.info['name'] else ""
+                    cmdline = " ".join(proc.info['cmdline']).lower() if proc.info['cmdline'] else ""
+                    
+                    for name in process_names:
+                        name_lower = name.lower()
+                        # Check process name
+                        if name_lower in proc_name:
+                            return True
+                        # Check command line
+                        if name_lower in cmdline:
+                            return True
+                        # Check if it's a node/python process running the tool
+                        if ('node' in proc_name or 'python' in proc_name) and name_lower in cmdline:
+                            return True
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    continue
+            
+            # Fallback: use 'pgrep' on Unix systems
+            if os.name != 'nt':  # Not Windows
                 for name in process_names:
-                    if name.lower() in proc_name or name.lower() in cmdline:
-                        return True
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
+                    try:
+                        result = subprocess.run(
+                            ['pgrep', '-f', name],
+                            capture_output=True,
+                            text=True,
+                            timeout=2
+                        )
+                        if result.returncode == 0 and result.stdout.strip():
+                            return True
+                    except:
+                        continue
+        except Exception as e:
+            print(f"Process check error: {e}")
+        
         return False
     
     def _read_latest_log(self, log_paths: List[str]) -> str:
@@ -147,11 +196,18 @@ class VibeCodeMonitor:
             return None
         
         lines = log_content.split('\n')
-        # Check last 20 lines
-        for line in reversed(lines[-20:]):
+        # Check last 50 lines (increased from 20)
+        relevant_lines = lines[-50:] if len(lines) > 50 else lines
+        
+        # Look for waiting patterns in reverse order (most recent first)
+        for line in reversed(relevant_lines):
+            line_stripped = line.strip()
+            if not line_stripped:
+                continue
             for pattern in patterns:
-                if re.search(pattern, line, re.IGNORECASE):
-                    return line.strip()
+                if re.search(pattern, line_stripped, re.IGNORECASE):
+                    # Return a truncated version of the line
+                    return line_stripped[:100] + "..." if len(line_stripped) > 100 else line_stripped
         return None
     
     def send_tool_command(self, tool_name: str, command: str) -> bool:

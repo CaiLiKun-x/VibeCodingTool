@@ -17,35 +17,47 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 private val DarkColorScheme = darkColorScheme(
-    primary = StatusBlue,
-    secondary = PurpleGrey80,
-    tertiary = Pink80,
+    primary = AppleBlue,
+    secondary = AppleGray2,
+    tertiary = ApplePurple,
     background = DarkBackground,
-    surface = CardBackground,
+    surface = DarkSurface,
+    surfaceVariant = DarkSurfaceVariant,
     onPrimary = Color.White,
     onSecondary = Color.White,
     onTertiary = Color.White,
     onBackground = Color.White,
     onSurface = Color.White,
+    onSurfaceVariant = AppleGray3,
+    error = AppleRed,
+    errorContainer = AppleRed.copy(alpha = 0.15f),
+    primaryContainer = AppleBlue.copy(alpha = 0.15f),
+    secondaryContainer = AppleGray.copy(alpha = 0.15f),
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40,
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
+    primary = AppleBlue,
+    secondary = AppleGray,
+    tertiary = ApplePurple,
+    background = LightBackground,
+    surface = LightSurface,
+    surfaceVariant = LightSurfaceVariant,
     onPrimary = Color.White,
     onSecondary = Color.White,
     onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
+    onBackground = Color(0xFF1C1C1E),
+    onSurface = Color(0xFF1C1C1E),
+    onSurfaceVariant = AppleGray,
+    error = AppleRed,
+    errorContainer = AppleRed.copy(alpha = 0.15f),
+    primaryContainer = AppleBlue.copy(alpha = 0.15f),
+    secondaryContainer = AppleGray5,
 )
 
 @Composable
 fun VibeCodingToolTheme(
-    darkTheme: Boolean = true,  // Default to dark theme for fullscreen display
-    dynamicColor: Boolean = false,  // Disable dynamic color for consistent look
+    darkTheme: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {

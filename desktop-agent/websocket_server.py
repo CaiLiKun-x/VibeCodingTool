@@ -23,15 +23,19 @@ class WebSocketServer:
     
     async def unregister(self, websocket: websockets.WebSocketServerProtocol):
         """Unregister client"""
-        self.clients.remove(websocket)
+        self.clients.discard(websocket)
         print(f"Client disconnected. Total clients: {len(self.clients)}")
     
-    async def handler(self, websocket: websockets.WebSocketServerProtocol, path: str):
+    async def handler(self, websocket: websockets.WebSocketServerProtocol):
         """Handle WebSocket connection"""
         await self.register(websocket)
         try:
             async for message in websocket:
                 await self.handle_message(websocket, message)
+        except websockets.exceptions.ConnectionClosedError:
+            print("Client connection closed unexpectedly")
+        except Exception as e:
+            print(f"Connection error: {e}")
         finally:
             await self.unregister(websocket)
     
